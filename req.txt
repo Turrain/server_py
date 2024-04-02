@@ -1,0 +1,6 @@
+fastapi-crudrouter-async
+aiosqlite
+fastapi-users[sqlalchemy]
+fastapi-crudrouter
+SQLAlchemy
+fastapi[all]
