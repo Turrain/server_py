@@ -4,3 +4,4 @@ fastapi-users[sqlalchemy]
 fastapi-crudrouter
 SQLAlchemy
 fastapi[all]
+pydub

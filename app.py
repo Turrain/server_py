@@ -8,17 +8,19 @@ from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile, File
 from fastapi_crudrouter import SQLAlchemyCRUDRouter
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from starlette import status
 from starlette.middleware.cors import CORSMiddleware
+import shutil
+from pydub import AudioSegment
 
 from db import User, create_db_and_tables, get_async_session
 from models import SoundFileModel, PhoneListModel, CompanyModel
 from schemas import UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate, PhoneList, PhoneListCreate, \
-    CompanyCreate, Company
+    CompanyCreate, Company, CallFile
 from users import auth_backend, current_active_user, fastapi_users, get_all_users, create_user_pro, \
     create_phone_list_pro, create_sound_file_pro, create_company_pro
-
 
 async def add_test_data():
     test_users = [
@@ -62,7 +64,7 @@ async def add_test_data():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await create_db_and_tables()
-    await add_test_data()
+    # await add_test_data()
     yield
 
 
@@ -75,6 +77,78 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# region CallManager
+
+# callManager_router = APIRouter()
+
+# @callManager_router.post("/callManager")
+# async def make_call():
+#     response = requests.post(f'{ARI_BASE_URL}/channels?endpoint=PJSIP/1002&extension=1001&context=Local&timeout=30&api_key={ARI_USERNAME}:{ARI_PASSWORD}')
+#     return response.json()
+
+# endregion
+
+# region Callfile
+
+callfiles_directory = "files/call"
+os.makedirs(callfiles_directory, exist_ok=True)
+
+callfile_router = APIRouter()
+
+@callfile_router.post("/create-callfile/")
+async def create_callfile(
+    callfile: CallFile,
+    session: AsyncSession = Depends(get_async_session)
+):
+    callfile_path = "/var/spool/asterisk/outgoing"
+
+    query = select(CompanyModel).filter_by(id=callfile.companyId)
+    result = await session.execute(query)
+    company = result.scalars().first()
+
+    query = select(PhoneListModel).filter_by(id=company.phones_id)
+    result = await session.execute(query)
+    company_phones = result.scalars().first()
+
+    if not company_phones:
+        raise HTTPException(status_code=404, detail="No phone numbers found for this company ID")
+    
+    created_files = []
+
+    for phone_number in company_phones.phones:
+        filename = f"{callfiles_directory}/callfile-{phone_number}.call"
+
+        callfile_content = f"""
+Channel: PJSIP/{str(phone_number)}@provider-endpoint
+Context: Autocall
+Extension: 1000
+Priority: 1
+Callerid: "Звонобот" <1000>
+Set: SOUND_FILE={os.path.basename(callfile.filepath)}
+MaxRetries: 2
+RetryTime: 60
+WaitTime: 30
+"""
+
+        with open(filename, "w") as f:
+            f.write(callfile_content.strip())
+
+        os.chmod(filename, 0o666)
+        
+        target_file_path = os.path.join(callfile_path, os.path.basename(filename))
+        if os.path.exists(target_file_path):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"File '{os.path.basename(filename)}' already exists in the target directory"
+            )
+
+        shutil.move(filename, callfile_path)
+        created_files.append(filename)
+
+    return {"message": "Callfile created successfully", "path": created_files}
+
+# endregion
 
 # region CompanyRouter
 company_router = APIRouter()
@@ -260,7 +334,18 @@ async def upload_sound_file(
         content = await file.read()
         out_file.write(content)
 
-    sound_file = SoundFileModel(name=file.filename, file_path=file_location, user_id=user.id)
+    audio = AudioSegment.from_file(file_location)
+    wav_filename = file.filename.rsplit('.', 1)[0] + '.wav'
+    wav_file_location = f"{files_directory}/{wav_filename}"
+
+    audio = audio.set_frame_rate(8000)
+    audio = audio.set_channels(1)
+    audio.export(wav_file_location, format="wav", parameters=["-acodec", "pcm_s16le"])
+
+    # Optionally, delete the original OGG file
+    os.remove(file_location)
+
+    sound_file = SoundFileModel(name=wav_filename, file_path=wav_file_location, user_id=user.id)
     session.add(sound_file)
     await session.commit()
     await session.refresh(sound_file)
@@ -339,6 +424,8 @@ async def delete_sound_file(
 
 # endregion
 
+# app.include_router(callManager_router, prefix='/api', tags=['call manager'])
+app.include_router(callfile_router, prefix='/api', tags=['callfile'])
 app.include_router(company_router, prefix="/api", tags=["companies"])
 app.include_router(phone_router, prefix="/api", tags=["phone-lists"])
 app.include_router(soundfile_router, prefix="/api", tags=["soundfiles"])
@@ -367,6 +454,7 @@ app.include_router(
     tags=["users"],
 )
 
+app.mount("/files", StaticFiles(directory="files"), name="files")
 
 @app.get("/authenticated-route")
 async def authenticated_route(user: User = Depends(current_active_user)):

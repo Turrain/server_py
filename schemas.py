@@ -61,3 +61,7 @@ class CompanyCreate(BaseModel):
 class Company(CompanyCreate):
     id: int
     user_id: int
+
+class CallFile(BaseModel):
+    companyId: int
+    filepath: str
