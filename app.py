@@ -6,14 +6,19 @@ import json
 import random
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile, File, Request
+from fastapi.responses import RedirectResponse
 from fastapi_crudrouter import SQLAlchemyCRUDRouter
 from fastapi.staticfiles import StaticFiles
+from fastapi.security import OAuth2PasswordBearer, OAuth2
 from sqlalchemy import select
 from starlette import status
 from starlette.middleware.cors import CORSMiddleware
 import shutil
 from pydub import AudioSegment
+from dotenv import load_dotenv
+import requests
+from urllib.parse import urlencode
 
 from db import User, create_db_and_tables, get_async_session
 from models import SoundFileModel, PhoneListModel, CompanyModel
@@ -21,6 +26,8 @@ from schemas import UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate
     CompanyCreate, Company, CallFile
 from users import auth_backend, current_active_user, fastapi_users, get_all_users, create_user_pro, \
     create_phone_list_pro, create_sound_file_pro, create_company_pro
+
+load_dotenv()
 
 async def add_test_data():
     test_users = [
@@ -67,6 +74,7 @@ async def lifespan(app: FastAPI):
     # await add_test_data()
     yield
 
+# oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/token")
 
 app = FastAPI(lifespan=lifespan)
 origins = ["*"]
@@ -77,6 +85,70 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# region GoogleAuth
+
+@app.get("/api/auth/google")
+async def login_google():
+    params = {
+        'client_id': os.getenv('GOOGLE_CLIENT_ID'),
+        'response_type': 'code',
+        'redirect_uri': os.getenv('GOOGLE_REDIRECT_URL'),
+        'scope': 'openid email profile',
+        'access_type': 'offline',
+        'prompt': 'select_account',
+    }
+    return RedirectResponse(url=f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}")
+
+@app.get('/api/auth/google-callback')
+async def callback_google(request: Request):
+    code = request.query_params.get('code')
+    if not code:
+        return {"error": "No code provided"}
+    
+    token_url = 'https://oauth2.googleapis.com/token'
+    response = requests.post(token_url, data={
+        'code': code,
+        'client_id': os.getenv('GOOGLE_CLIENT_ID'),
+        'client_secret': os.getenv('GOOGLE_CLIENT_SECRET'),
+        'redirect_uri': os.getenv('GOOGLE_REDIRECT_URL'),
+        'grant_type': 'authorization_code',
+    })
+    access_token = response.json().get('access_token')
+    user_info = requests.get('https://openidconnect.googleapis.com/v1/userinfo', headers={"Authorization": f"Bearer {access_token}"})
+
+    return {
+        "access_token": access_token,
+        "user_info": user_info.json()
+    }
+
+
+# @app.get("/api/login/google")
+# async def login_google():
+#     return {
+#         "url": f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={os.getenv('GOOGLE_CLIENT_ID')}&redirect_uri={os.getenv('GOOGLE_REDIRECT_URL')}&scope=openid%20profile%20email&access_type=offline"
+#     }
+
+# @app.get("/api/auth/google")
+# async def auth_google(code: str):
+#     token_url = 'https://oauth2.googleapis.com/token'
+#     data = {
+#         'code': code,
+#         'client_id': os.getenv('GOOGLE_CLIENT_ID'),
+#         'client_secret': os.getenv('GOOGLE_CLIENT_SECRET'),
+#         'redirect_uri': os.getenv('GOOGLE_REDIRECT_URL'),
+#         'grant_type': 'authorization_code',
+#     }
+#     response = requests.post(token_url, data=data)
+#     access_token = response.json().get('access_token')
+#     user_info = requests.get('https://openidconnect.googleapis.com/v1/userinfo', headers={"Authorization": f"Bearer {access_token}"})
+#     return user_info.json()
+
+# @app.get('/api/token')
+# async def get_token(token: str = Depends(oauth2_scheme)):
+#     return 
+
+# endregion
 
 # region CallManager
 
@@ -116,36 +188,40 @@ async def create_callfile(
     
     created_files = []
 
-    for phone_number in company_phones.phones:
-        filename = f"{callfiles_directory}/callfile-{phone_number}.call"
+    try:
+        for phone_number in company_phones.phones:
+            filename = f"{callfiles_directory}/callfile-{phone_number}.call"
 
-        callfile_content = f"""
+            callfile_content = f"""
 Channel: PJSIP/{str(phone_number)}@provider-endpoint
 Context: Autocall
 Extension: 1000
 Priority: 1
 Callerid: "Звонобот" <1000>
-Set: SOUND_FILE={os.path.basename(callfile.filepath)}
+Set: SOUND_FILE={callfile.filepath}
 MaxRetries: 2
 RetryTime: 60
 WaitTime: 30
 """
 
-        with open(filename, "w") as f:
-            f.write(callfile_content.strip())
+            with open(filename, "w") as f:
+                f.write(callfile_content.strip())
 
-        os.chmod(filename, 0o666)
-        
-        target_file_path = os.path.join(callfile_path, os.path.basename(filename))
-        if os.path.exists(target_file_path):
-            raise HTTPException(
-                status_code=400, 
-                detail=f"File '{os.path.basename(filename)}' already exists in the target directory"
-            )
+            os.chmod(filename, 0o666)
+            
+            target_file_path = os.path.join(callfile_path, os.path.basename(filename))
+            if os.path.exists(target_file_path):
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"File '{os.path.basename(filename)}' already exists in the target directory"
+                )
 
-        shutil.move(filename, callfile_path)
-        created_files.append(filename)
-
+            created_files.append(filename)
+            shutil.move(filename, callfile_path)
+    except:
+        for file in created_files:
+            os.remove(file);
+        return {"message": "Callfile error. Existed files has been removed."}
     return {"message": "Callfile created successfully", "path": created_files}
 
 # endregion
@@ -194,27 +270,40 @@ async def read_companies(
     companies = result.scalars().all()
     return companies
 
-
-# Обновление компании
+from sqlalchemy.exc import SQLAlchemyError
 @company_router.put("/companies/{company_id}", response_model=Company)
 async def update_company(
-        company_id: int,
-        company_data: CompanyCreate,
-        user: User = Depends(current_active_user),
-        session: AsyncSession = Depends(get_async_session)
+    company_id: int,
+    company_data: CompanyCreate,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
 ):
-    query = select(CompanyModel).filter_by(id=company_id, user_id=user.id)
-    result = await session.execute(query)
-    company = result.scalars().first()
-    if company is None:
-        raise HTTPException(status_code=404, detail="Company not found")
-    for var, value in vars(company_data).items():
-        setattr(company, var, value) if value else None
-    session.add(company)
-    await session.commit()
-    await session.refresh(company)
-    return company
+    try:
+        # Construct and execute query
+        query = select(CompanyModel).filter_by(id=company_id, user_id=user.id)
+        result = await session.execute(query)
+        company = result.scalars().first()
 
+        # Check if company exists
+        if company is None:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        # Update attributes dynamically
+        for var, value in vars(company_data).items():
+            if hasattr(company, var):
+                setattr(company, var, value)
+
+        # Persist changes to the database
+        session.add(company)
+        await session.commit()
+        await session.refresh(company)
+        return company
+
+    except SQLAlchemyError as e:
+        # Log the exception or process error appropriately
+        print(f"An error occurred: {str(e)}")
+        # Optionally, you can raise an HTTPException or handle the error as needed
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # Удаление компании
 @company_router.delete("/companies/{company_id}", status_code=status.HTTP_204_NO_CONTENT)
