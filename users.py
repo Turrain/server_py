@@ -12,13 +12,41 @@ from fastapi_users.authentication import (
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.exceptions import UserAlreadyExists
 from sqlalchemy import select
+from starlette.config import Config
+from httpx_oauth.clients.google import GoogleOAuth2
+from httpx_oauth.clients.github import GitHubOAuth2
+from httpx_oauth.clients.openid import OpenID
 
 from db import get_async_session, get_user_db
 from models import CompanyModel, PhoneListModel, SoundFileModel, User
 from schemas import UserCreate
 
+config = Config('.env')
 SECRET = "SECRET"
 
+GOOGLE_CLIENT_ID = config('GOOGLE_CLIENT_ID')
+GOOGLE_CLIENT_SECRET = config('GOOGLE_CLIENT_SECRET')
+GOOGLE_REDIRECT_URI = config('GOOGLE_REDIRECT_URI')
+
+GITHUB_CLIENT_ID = config('GITHUB_CLIENT_ID')
+GITHUB_CLIENT_SECRET = config('GITHUB_CLIENT_SECRET')
+
+openid_oauth_client = OpenID(
+    GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET,
+    'https://accounts.google.com/.well-known/openid-configuration'
+)
+
+google_oauth_client = GoogleOAuth2(
+    GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET,
+    scopes=["openid", "email", "profile"]
+)
+
+github_oauth_client = GitHubOAuth2(
+    GITHUB_CLIENT_ID,
+    GITHUB_CLIENT_SECRET
+)
 
 class UserManager(IntegerIDMixin, BaseUserManager[User, int]):
     reset_password_token_secret = SECRET
@@ -64,14 +92,14 @@ get_user_db_context = contextlib.asynccontextmanager(get_user_db)
 get_user_manager_context = contextlib.asynccontextmanager(get_user_manager)
 
 
-async def create_user_pro(email: str, password: str, is_superuser: bool = False):
+async def create_user_pro(email: str, password: str, is_superuser: bool = False, avatar: str = ''):
     try:
         async with get_async_session_context() as session:
             async with get_user_db_context(session) as user_db:
                 async with get_user_manager_context(user_db) as user_manager:
                     user = await user_manager.create(
                         UserCreate(
-                            email=email, password=password, is_superuser=is_superuser
+                            email=email, password=password, is_superuser=is_superuser, avatar=avatar
                         )
                     )
                     print(f"User created {user} {email} {password}")

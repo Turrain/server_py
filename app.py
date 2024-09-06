@@ -1,33 +1,26 @@
-import asyncio
 import os
 from contextlib import asynccontextmanager
 import datetime
-import json
 import random
-from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile, File, Request
-from fastapi.responses import RedirectResponse
-from fastapi_crudrouter import SQLAlchemyCRUDRouter
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
-from fastapi.security import OAuth2PasswordBearer, OAuth2
 from sqlalchemy import select
 from starlette import status
 from starlette.middleware.cors import CORSMiddleware
+from starlette.config import Config
+from starlette.responses import RedirectResponse
 import shutil
 from pydub import AudioSegment
-from dotenv import load_dotenv
-import requests
-from urllib.parse import urlencode
 
 from db import User, create_db_and_tables, get_async_session
 from models import SoundFileModel, PhoneListModel, CompanyModel
 from schemas import UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate, PhoneList, PhoneListCreate, \
     CompanyCreate, Company, CallFile
-from users import auth_backend, current_active_user, fastapi_users, get_all_users, create_user_pro, \
+from users import auth_backend, current_active_user, fastapi_users, google_oauth_client, github_oauth_client, openid_oauth_client, SECRET, get_all_users, create_user_pro, \
     create_phone_list_pro, create_sound_file_pro, create_company_pro
 
-load_dotenv()
+from httpx_oauth.integrations.fastapi import OAuth2AuthorizeCallback
 
 async def add_test_data():
     test_users = [
@@ -74,7 +67,10 @@ async def lifespan(app: FastAPI):
     # await add_test_data()
     yield
 
-# oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/token")
+config = Config('.env')
+
+GOOGLE_REDIRECT_URI = config('GOOGLE_REDIRECT_URI')
+REACT_REDIRECT_URI = config('REACT_REDIRECT_URI')
 
 app = FastAPI(lifespan=lifespan)
 origins = ["*"]
@@ -85,70 +81,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# region GoogleAuth
-
-@app.get("/api/auth/google")
-async def login_google():
-    params = {
-        'client_id': os.getenv('GOOGLE_CLIENT_ID'),
-        'response_type': 'code',
-        'redirect_uri': os.getenv('GOOGLE_REDIRECT_URL'),
-        'scope': 'openid email profile',
-        'access_type': 'offline',
-        'prompt': 'select_account',
-    }
-    return RedirectResponse(url=f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}")
-
-@app.get('/api/auth/google-callback')
-async def callback_google(request: Request):
-    code = request.query_params.get('code')
-    if not code:
-        return {"error": "No code provided"}
-    
-    token_url = 'https://oauth2.googleapis.com/token'
-    response = requests.post(token_url, data={
-        'code': code,
-        'client_id': os.getenv('GOOGLE_CLIENT_ID'),
-        'client_secret': os.getenv('GOOGLE_CLIENT_SECRET'),
-        'redirect_uri': os.getenv('GOOGLE_REDIRECT_URL'),
-        'grant_type': 'authorization_code',
-    })
-    access_token = response.json().get('access_token')
-    user_info = requests.get('https://openidconnect.googleapis.com/v1/userinfo', headers={"Authorization": f"Bearer {access_token}"})
-
-    return {
-        "access_token": access_token,
-        "user_info": user_info.json()
-    }
-
-
-# @app.get("/api/login/google")
-# async def login_google():
-#     return {
-#         "url": f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={os.getenv('GOOGLE_CLIENT_ID')}&redirect_uri={os.getenv('GOOGLE_REDIRECT_URL')}&scope=openid%20profile%20email&access_type=offline"
-#     }
-
-# @app.get("/api/auth/google")
-# async def auth_google(code: str):
-#     token_url = 'https://oauth2.googleapis.com/token'
-#     data = {
-#         'code': code,
-#         'client_id': os.getenv('GOOGLE_CLIENT_ID'),
-#         'client_secret': os.getenv('GOOGLE_CLIENT_SECRET'),
-#         'redirect_uri': os.getenv('GOOGLE_REDIRECT_URL'),
-#         'grant_type': 'authorization_code',
-#     }
-#     response = requests.post(token_url, data=data)
-#     access_token = response.json().get('access_token')
-#     user_info = requests.get('https://openidconnect.googleapis.com/v1/userinfo', headers={"Authorization": f"Bearer {access_token}"})
-#     return user_info.json()
-
-# @app.get('/api/token')
-# async def get_token(token: str = Depends(oauth2_scheme)):
-#     return 
-
-# endregion
 
 # region CallManager
 
@@ -512,6 +444,12 @@ async def delete_sound_file(
 
 
 # endregion
+oauth2_authorize_callback = OAuth2AuthorizeCallback(openid_oauth_client, "google_callback")
+
+@app.get('/auth/google/callback', name='google_callback')
+async def google_callback(access_token_state = Depends(oauth2_authorize_callback)):
+    token, state = access_token_state
+    return RedirectResponse(url=f'http://localhost:5173/auth/google/callback?access_token={token}')
 
 # app.include_router(callManager_router, prefix='/api', tags=['call manager'])
 app.include_router(callfile_router, prefix='/api', tags=['callfile'])
@@ -541,6 +479,16 @@ app.include_router(
     fastapi_users.get_users_router(UserRead, UserUpdate),
     prefix="/users",
     tags=["users"],
+)
+app.include_router(
+    fastapi_users.get_oauth_router(openid_oauth_client, auth_backend, SECRET, associate_by_email=True),
+    prefix="/auth/google",
+    tags=["auth"],
+)
+app.include_router(
+    fastapi_users.get_oauth_router(github_oauth_client, auth_backend, SECRET, associate_by_email=True),
+    prefix="/auth/github",
+    tags=["auth"],
 )
 
 app.mount("/files", StaticFiles(directory="files"), name="files")

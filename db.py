@@ -7,7 +7,7 @@ from sqlalchemy import Column, Integer
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-from models import User, Base
+from models import User, Base, OAuthAccount
 
 DATABASE_URL = "sqlite+aiosqlite:///./test.db"
 
@@ -26,4 +26,4 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def get_user_db(session: AsyncSession = Depends(get_async_session)):
-    yield SQLAlchemyUserDatabase(session, User)
+    yield SQLAlchemyUserDatabase(session, User, OAuthAccount)

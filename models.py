@@ -1,19 +1,27 @@
 import datetime
 from typing import Dict, List, Optional
 
-from fastapi_users_db_sqlalchemy import SQLAlchemyBaseUserTable
+from fastapi_users_db_sqlalchemy import SQLAlchemyBaseUserTable, SQLAlchemyBaseOAuthAccountTable
 from pydantic import BaseModel
 from sqlalchemy import Column, ForeignKey, Integer, String, Time, JSON, ARRAY
 from pydantic import BaseModel, EmailStr
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, Mapped, relationship
 
 
 class Base(DeclarativeBase):
     pass
 
 
+class OAuthAccount(SQLAlchemyBaseOAuthAccountTable[int], Base):
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("user.id", ondelete="cascade"), nullable=False)
+
+
 class User(SQLAlchemyBaseUserTable[int], Base):
     id = Column(Integer, primary_key=True)
+    oauth_accounts = relationship(
+        "OAuthAccount", lazy="joined"
+    )
 
 
 class CompanyModel(Base):
