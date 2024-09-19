@@ -3,22 +3,29 @@ from contextlib import asynccontextmanager
 import datetime
 import random
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile, File, Request, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from starlette import status
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.config import Config
 from starlette.responses import RedirectResponse
+from starlette.authentication import AuthenticationBackend
+from authlib.integrations.starlette_client import OAuth
+from fastapi.security import OAuth2PasswordBearer
 import shutil
 from pydub import AudioSegment
-
 from db import User, create_db_and_tables, get_async_session
 from models import SoundFileModel, PhoneListModel, CompanyModel
 from schemas import UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate, PhoneList, PhoneListCreate, \
     CompanyCreate, Company, CallFile
 from users import auth_backend, current_active_user, fastapi_users, google_oauth_client, github_oauth_client, openid_oauth_client, SECRET, get_all_users, create_user_pro, \
     create_phone_list_pro, create_sound_file_pro, create_company_pro
+
+from fastapi_users.router.common import ErrorCode
+from fastapi_users.exceptions import UserAlreadyExists
+from fastapi_users.jwt import SecretType, decode_jwt, generate_jwt
 
 from httpx_oauth.integrations.fastapi import OAuth2AuthorizeCallback
 
@@ -69,8 +76,24 @@ async def lifespan(app: FastAPI):
 
 config = Config('.env')
 
+GOOGLE_CLIENT_ID = config('GOOGLE_CLIENT_ID')
+GOOGLE_CLIENT_SECRET = config('GOOGLE_CLIENT_SECRET')
 GOOGLE_REDIRECT_URI = config('GOOGLE_REDIRECT_URI')
+
 REACT_REDIRECT_URI = config('REACT_REDIRECT_URI')
+
+oauth = OAuth(config)
+
+CONF_URL = 'https://accounts.google.com/.well-known/openid-configuration'
+
+oauth.register(
+    name='google',
+    server_metadata_url=CONF_URL,
+    client_kwargs={
+        'scope': 'openid email profile',
+        'prompt': 'select_account',
+    },
+)
 
 app = FastAPI(lifespan=lifespan)
 origins = ["*"]
@@ -81,6 +104,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SessionMiddleware, secret_key="!secret")
 
 # region CallManager
 
@@ -444,12 +468,61 @@ async def delete_sound_file(
 
 
 # endregion
-oauth2_authorize_callback = OAuth2AuthorizeCallback(openid_oauth_client, "google_callback")
 
-@app.get('/auth/google/callback', name='google_callback')
-async def google_callback(access_token_state = Depends(oauth2_authorize_callback)):
+oauth2_authorize_callback = OAuth2AuthorizeCallback(google_oauth_client, "google_callback")
+
+# @app.get('/auth/google/callback', name='google_callback')
+# async def google_callback(access_token_state = Depends(oauth2_authorize_callback)):
+#     token, state = access_token_state
+#     print(access_token_state)
+#     return RedirectResponse(url=f'http://localhost:5173/auth/google/callback?access_token={token}')
+
+@app.get('/auth/google/callback')
+async def google_callback(
+    request: Request,
+    access_token_state = Depends(oauth2_authorize_callback),
+    user_manager = Depends(fastapi_users.get_user_manager),
+    strategy = Depends(auth_backend.get_strategy),
+):
     token, state = access_token_state
-    return RedirectResponse(url=f'http://localhost:5173/auth/google/callback?access_token={token}')
+    account_id, account_email = await google_oauth_client.get_id_email(
+        token["access_token"]
+    )
+    if account_email is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorCode.OAUTH_NOT_AVAILABLE_EMAIL,
+        )
+    
+    try:
+        user = await user_manager.oauth_callback(
+            google_oauth_client.name,
+            token["access_token"],
+            account_id,
+            account_email,
+            token.get("expires_at"),
+            token.get("refresh_token"),
+            request,
+            associate_by_email=True,
+            is_verified_by_default=False,
+        )
+    except UserAlreadyExists:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorCode.OAUTH_USER_ALREADY_EXISTS,
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ErrorCode.LOGIN_BAD_CREDENTIALS,
+        )
+
+    # Authenticate
+    response = await auth_backend.login(strategy, user)
+    await user_manager.on_after_login(user, request, response)
+    
+    return RedirectResponse(url=f'http://localhost:5173/auth/google/callback?access_token={response.body}')
 
 # app.include_router(callManager_router, prefix='/api', tags=['call manager'])
 app.include_router(callfile_router, prefix='/api', tags=['callfile'])
@@ -481,7 +554,7 @@ app.include_router(
     tags=["users"],
 )
 app.include_router(
-    fastapi_users.get_oauth_router(openid_oauth_client, auth_backend, SECRET, associate_by_email=True),
+    fastapi_users.get_oauth_router(google_oauth_client, auth_backend, SECRET, associate_by_email=True),
     prefix="/auth/google",
     tags=["auth"],
 )

@@ -5,7 +5,7 @@ from fastapi_users_db_sqlalchemy import SQLAlchemyBaseUserTable, SQLAlchemyBaseO
 from pydantic import BaseModel
 from sqlalchemy import Column, ForeignKey, Integer, String, Time, JSON, ARRAY
 from pydantic import BaseModel, EmailStr
-from sqlalchemy.orm import DeclarativeBase, Mapped, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, relationship, declared_attr
 
 
 class Base(DeclarativeBase):
@@ -14,7 +14,10 @@ class Base(DeclarativeBase):
 
 class OAuthAccount(SQLAlchemyBaseOAuthAccountTable[int], Base):
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("user.id", ondelete="cascade"), nullable=False)
+    
+    @declared_attr
+    def user_id(cls):
+        return Column(Integer, ForeignKey("user.id", ondelete="cascade"), nullable=False)
 
 
 class User(SQLAlchemyBaseUserTable[int], Base):
