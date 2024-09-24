@@ -61,6 +61,23 @@ class Company(CompanyCreate):
     id: int
     user_id: int
 
+
 class CallFile(BaseModel):
     companyId: int
     filepath: str
+
+
+class CRMKanbanTaskCreate(BaseModel):
+    content: str
+    client_name: str
+    company_name: str
+    phone_number: str
+    commentary: str
+    task: str
+    date_time: datetime.time
+    column_id: int
+
+
+class CRMKanbanColumnCreate(BaseModel):
+    title: str
+    tag_color: str = None

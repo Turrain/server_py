@@ -30,8 +30,8 @@ GOOGLE_CLIENT_ID = config('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = config('GOOGLE_CLIENT_SECRET')
 GOOGLE_REDIRECT_URI = config('GOOGLE_REDIRECT_URI')
 
-GITHUB_CLIENT_ID = config('GITHUB_CLIENT_ID')
-GITHUB_CLIENT_SECRET = config('GITHUB_CLIENT_SECRET')
+# GITHUB_CLIENT_ID = config('GITHUB_CLIENT_ID')
+# GITHUB_CLIENT_SECRET = config('GITHUB_CLIENT_SECRET')
 
 openid_oauth_client = OpenID(
     GOOGLE_CLIENT_ID,
@@ -45,10 +45,10 @@ google_oauth_client = GoogleOAuth2(
     scopes=["openid", "email", "profile"]
 )
 
-github_oauth_client = GitHubOAuth2(
-    GITHUB_CLIENT_ID,
-    GITHUB_CLIENT_SECRET
-)
+# github_oauth_client = GitHubOAuth2(
+#     GITHUB_CLIENT_ID,
+#     GITHUB_CLIENT_SECRET
+# )
 
 class UserManager(IntegerIDMixin, BaseUserManager[User, int]):
     reset_password_token_secret = SECRET

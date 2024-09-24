@@ -11,16 +11,13 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.config import Config
 from starlette.responses import RedirectResponse
-from starlette.authentication import AuthenticationBackend
-from authlib.integrations.starlette_client import OAuth
-from fastapi.security import OAuth2PasswordBearer
 import shutil
 from pydub import AudioSegment
 from db import User, create_db_and_tables, get_async_session
-from models import SoundFileModel, PhoneListModel, CompanyModel
+from models import SoundFileModel, PhoneListModel, CompanyModel, CRMKanbanColumnModel, CRMKanbanTaskModel
 from schemas import UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate, PhoneList, PhoneListCreate, \
-    CompanyCreate, Company, CallFile
-from users import auth_backend, current_active_user, fastapi_users, google_oauth_client, github_oauth_client, openid_oauth_client, SECRET, get_all_users, create_user_pro, \
+    CompanyCreate, Company, CallFile, CRMKanbanColumnCreate, CRMKanbanTaskCreate
+from users import auth_backend, current_active_user, fastapi_users, google_oauth_client, openid_oauth_client, SECRET, get_all_users, create_user_pro, \
     create_phone_list_pro, create_sound_file_pro, create_company_pro
 
 from fastapi_users.router.common import ErrorCode
@@ -81,19 +78,6 @@ GOOGLE_CLIENT_SECRET = config('GOOGLE_CLIENT_SECRET')
 GOOGLE_REDIRECT_URI = config('GOOGLE_REDIRECT_URI')
 
 REACT_REDIRECT_URI = config('REACT_REDIRECT_URI')
-
-oauth = OAuth(config)
-
-CONF_URL = 'https://accounts.google.com/.well-known/openid-configuration'
-
-oauth.register(
-    name='google',
-    server_metadata_url=CONF_URL,
-    client_kwargs={
-        'scope': 'openid email profile',
-        'prompt': 'select_account',
-    },
-)
 
 app = FastAPI(lifespan=lifespan)
 origins = ["*"]
@@ -469,6 +453,24 @@ async def delete_sound_file(
 
 # endregion
 
+# region CRM Kanban
+
+crm_kanban_router = APIRouter()
+
+@crm_kanban_router.post('/crm_kanban_column/')
+async def create_column(
+    column: CRMKanbanColumnCreate,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    new_phone_list = CRMKanbanColumnModel(**column.dict(), user_id=user.id)
+    session.add(new_phone_list)
+    await session.commit()
+    await session.refresh(new_phone_list)
+    return new_phone_list
+
+# endregion
+
 oauth2_authorize_callback = OAuth2AuthorizeCallback(google_oauth_client, "google_callback")
 
 # @app.get('/auth/google/callback', name='google_callback')
@@ -522,7 +524,7 @@ async def google_callback(
     response = await auth_backend.login(strategy, user)
     await user_manager.on_after_login(user, request, response)
     
-    return RedirectResponse(url=f'http://localhost:5173/auth/google/callback?access_token={response.body}')
+    return RedirectResponse(url=f'{REACT_REDIRECT_URI}?access_token={response.body}')
 
 # app.include_router(callManager_router, prefix='/api', tags=['call manager'])
 app.include_router(callfile_router, prefix='/api', tags=['callfile'])
@@ -558,11 +560,11 @@ app.include_router(
     prefix="/auth/google",
     tags=["auth"],
 )
-app.include_router(
-    fastapi_users.get_oauth_router(github_oauth_client, auth_backend, SECRET, associate_by_email=True),
-    prefix="/auth/github",
-    tags=["auth"],
-)
+# app.include_router(
+#     fastapi_users.get_oauth_router(github_oauth_client, auth_backend, SECRET, associate_by_email=True),
+#     prefix="/auth/github",
+#     tags=["auth"],
+# )
 
 app.mount("/files", StaticFiles(directory="files"), name="files")
 

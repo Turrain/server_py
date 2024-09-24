@@ -1,6 +1,6 @@
 fastapi-crudrouter-async
 aiosqlite
-fastapi-users[sqlalchemy]
+fastapi-users[sqlalchemy, oauth]
 fastapi-crudrouter
 SQLAlchemy
 fastapi[all]
