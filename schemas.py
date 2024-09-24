@@ -50,7 +50,7 @@ class CompanyCreate(BaseModel):
     start_time: datetime.time
     end_time: datetime.time
     days: List[int]
-    reaction: Dict[str, str | None]
+    reaction: Dict[str, str]
     phones_id: int
 
     class Config:
@@ -67,17 +67,17 @@ class CallFile(BaseModel):
     filepath: str
 
 
-class CRMKanbanTaskCreate(BaseModel):
-    content: str
-    client_name: str
-    company_name: str
-    phone_number: str
-    commentary: str
-    task: str
-    date_time: datetime.time
-    column_id: int
+# class CRMKanbanTaskCreate(BaseModel):
+#     content: str
+#     client_name: str
+#     company_name: str
+#     phone_number: str
+#     commentary: str
+#     task: str
+#     date_time: datetime.time
+#     column_id: int
 
 
-class CRMKanbanColumnCreate(BaseModel):
-    title: str
-    tag_color: str = None
+# class CRMKanbanColumnCreate(BaseModel):
+#     title: str
+#     tag_color: str = None

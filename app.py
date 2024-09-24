@@ -14,9 +14,9 @@ from starlette.responses import RedirectResponse
 import shutil
 from pydub import AudioSegment
 from db import User, create_db_and_tables, get_async_session
-from models import SoundFileModel, PhoneListModel, CompanyModel, CRMKanbanColumnModel, CRMKanbanTaskModel
+from models import SoundFileModel, PhoneListModel, CompanyModel
 from schemas import UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate, PhoneList, PhoneListCreate, \
-    CompanyCreate, Company, CallFile, CRMKanbanColumnCreate, CRMKanbanTaskCreate
+    CompanyCreate, Company, CallFile
 from users import auth_backend, current_active_user, fastapi_users, google_oauth_client, openid_oauth_client, SECRET, get_all_users, create_user_pro, \
     create_phone_list_pro, create_sound_file_pro, create_company_pro
 
@@ -455,20 +455,31 @@ async def delete_sound_file(
 
 # region CRM Kanban
 
-crm_kanban_router = APIRouter()
+# crm_kanban_router = APIRouter()
 
-@crm_kanban_router.post('/crm_kanban_column/')
-async def create_column(
-    column: CRMKanbanColumnCreate,
-    user: User = Depends(current_active_user),
-    session: AsyncSession = Depends(get_async_session)
+# @crm_kanban_router.post('/crm_kanban_column/')
+# async def create_column(
+#     column: CRMKanbanColumnCreate,
+#     user: User = Depends(current_active_user),
+#     session: AsyncSession = Depends(get_async_session)
+# ):
+#     new_phone_list = CRMKanbanColumnModel(**column.dict(), user_id=user.id)
+#     session.add(new_phone_list)
+#     await session.commit()
+#     await session.refresh(new_phone_list)
+#     return new_phone_list
+
+# endregion
+
+# region Google Calendar API
+    
+calendar_router = APIRouter()
+
+@calendar_router.get('/add-event')
+async def post_event(
+    user: User = Depends(current_active_user)
 ):
-    new_phone_list = CRMKanbanColumnModel(**column.dict(), user_id=user.id)
-    session.add(new_phone_list)
-    await session.commit()
-    await session.refresh(new_phone_list)
-    return new_phone_list
-
+    return print(user.oauth_accounts.access_token)
 # endregion
 
 oauth2_authorize_callback = OAuth2AuthorizeCallback(google_oauth_client, "google_callback")
