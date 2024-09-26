@@ -67,6 +67,14 @@ class CallFile(BaseModel):
     filepath: str
 
 
+class CreateEventRequest(BaseModel):
+    summary: str
+    description: str
+    start_date_time: str
+    end_date_time: str
+    time_zone: str
+
+
 # class CRMKanbanTaskCreate(BaseModel):
 #     content: str
 #     client_name: str

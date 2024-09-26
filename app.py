@@ -2,6 +2,7 @@ import os
 from contextlib import asynccontextmanager
 import datetime
 import random
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile, File, Request, Response
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +17,7 @@ from pydub import AudioSegment
 from db import User, create_db_and_tables, get_async_session
 from models import SoundFileModel, PhoneListModel, CompanyModel
 from schemas import UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate, PhoneList, PhoneListCreate, \
-    CompanyCreate, Company, CallFile
+    CompanyCreate, Company, CallFile, CreateEventRequest
 from users import auth_backend, current_active_user, fastapi_users, google_oauth_client, openid_oauth_client, SECRET, get_all_users, create_user_pro, \
     create_phone_list_pro, create_sound_file_pro, create_company_pro
 
@@ -25,6 +26,9 @@ from fastapi_users.exceptions import UserAlreadyExists
 from fastapi_users.jwt import SecretType, decode_jwt, generate_jwt
 
 from httpx_oauth.integrations.fastapi import OAuth2AuthorizeCallback
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+import requests
 
 async def add_test_data():
     test_users = [
@@ -475,14 +479,50 @@ async def delete_sound_file(
     
 calendar_router = APIRouter()
 
-@calendar_router.get('/add-event')
+oauth2_authorize_callback = OAuth2AuthorizeCallback(google_oauth_client, "google_callback")
+
+@calendar_router.post('/add-event')
 async def post_event(
+    request: CreateEventRequest,
+    access_token_state = Depends(oauth2_authorize_callback),
     user: User = Depends(current_active_user)
 ):
-    return print(user.oauth_accounts.access_token)
+    token, state = access_token_state
+    for u in user.oauth_accounts:
+        if u.oauth_name == 'google':
+            credentials = Credentials(token=u.access_token)
+            service = build('calendar', 'v3', credentials=credentials)
+            # print(token["access_token"])
+            # headers = {
+            #     "Authorization": f"Bearer {token["access_token"]}",
+            #     "Content-Type": "application/json"
+            # }
+
+            event = {
+                'summary': request.summary,
+                'description': request.description,
+                'start': {
+                    'dateTime': request.start_date_time,
+                    'timeZone': request.time_zone,
+                },
+                'end': {
+                    'dateTime': request.end_date_time,
+                    'timeZone': request.time_zone,
+                }
+            }
+
+            # response = requests.post('https://www.googleapis.com/calendar/v3/calendars/primary/events', headers=headers, json=event)
+            # if response.status_code == 200:
+            #     return response.json()
+            # else:
+            #     raise HTTPException(status_code=response.status_code, detail="Error creating event")
+            created_event = service.events().insert(calendarId='primary', body=event).execute()
+            return JSONResponse(content={"message": "Event created", "eventId": created_event.get("id")})
+    # return user.oauth_accounts
+            
 # endregion
 
-oauth2_authorize_callback = OAuth2AuthorizeCallback(google_oauth_client, "google_callback")
+
 
 # @app.get('/auth/google/callback', name='google_callback')
 # async def google_callback(access_token_state = Depends(oauth2_authorize_callback)):
@@ -501,6 +541,7 @@ async def google_callback(
     account_id, account_email = await google_oauth_client.get_id_email(
         token["access_token"]
     )
+    print(token)
     if account_email is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -535,13 +576,14 @@ async def google_callback(
     response = await auth_backend.login(strategy, user)
     await user_manager.on_after_login(user, request, response)
     
-    return RedirectResponse(url=f'{REACT_REDIRECT_URI}?access_token={response.body}')
+    return RedirectResponse(url=f'http://localhost:5173/auth/google/callback?access_token={response.body}')
 
 # app.include_router(callManager_router, prefix='/api', tags=['call manager'])
 app.include_router(callfile_router, prefix='/api', tags=['callfile'])
 app.include_router(company_router, prefix="/api", tags=["companies"])
 app.include_router(phone_router, prefix="/api", tags=["phone-lists"])
 app.include_router(soundfile_router, prefix="/api", tags=["soundfiles"])
+app.include_router(calendar_router, prefix='/api', tags=['calendars'])
 
 app.include_router(
     fastapi_users.get_auth_router(auth_backend), prefix="/auth/jwt", tags=["auth"]
