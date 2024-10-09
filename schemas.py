@@ -75,6 +75,26 @@ class CreateEventRequest(BaseModel):
     time_zone: str
 
 
+class KanbanCardCreate(BaseModel):
+    name: str
+    company: str
+    phone: str
+    comment: str
+    task: str
+    datetime: datetime
+
+
+class KanbanColumnCreate(BaseModel):
+    title: str
+    tag_color: str
+
+
+class CalendarEventCreate(BaseModel):
+    title: str
+    start: datetime
+    end: datetime
+
+
 # class CRMKanbanTaskCreate(BaseModel):
 #     content: str
 #     client_name: str

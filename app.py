@@ -15,8 +15,8 @@ from starlette.responses import RedirectResponse
 import shutil
 from pydub import AudioSegment
 from db import User, create_db_and_tables, get_async_session
-from models import SoundFileModel, PhoneListModel, CompanyModel
-from schemas import UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate, PhoneList, PhoneListCreate, \
+from models import CalendarEvent, KanbanCard, KanbanColumn, SoundFileModel, PhoneListModel, CompanyModel
+from schemas import KanbanCardCreate, KanbanColumnCreate, UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate, PhoneList, PhoneListCreate, \
     CompanyCreate, Company, CallFile, CreateEventRequest
 from users import auth_backend, current_active_user, fastapi_users, google_oauth_client, openid_oauth_client, SECRET, get_all_users, create_user_pro, \
     create_phone_list_pro, create_sound_file_pro, create_company_pro
@@ -473,6 +473,54 @@ async def delete_sound_file(
 #     await session.refresh(new_phone_list)
 #     return new_phone_list
 
+kanban_cards_router = APIRouter()
+
+@kanban_cards_router.post('/kanban_columns')
+async def create_kanban_column(
+    column: KanbanColumnCreate,
+    session: AsyncSession = Depends(get_async_session)
+):
+    new_column = KanbanColumnCreate(**column.dict())
+    session.add(new_column)
+    await session.commit()
+    await session.refresh(new_column)
+    return new_column
+
+
+@kanban_cards_router.get('/kanban_columns')
+async def get_kanban_column(
+    session: AsyncSession = Depends(get_async_session)
+):
+    query = select(KanbanColumn)
+    result = await session.execute(query)
+    column = result.scalars().all()
+
+    if column is None:
+        raise HTTPException(status_code=404, detail="Columns not found")
+    return column
+
+# @kanban_cards_router.post('/kanban-cards', response_model=KanbanCard)
+# async def create_kanban_card(
+#     kanban_card: KanbanCardCreate,
+#     user: User = Depends(current_active_user),
+#     session: AsyncSession = Depends(get_async_session),
+# ):
+#     new_kanban_card = KanbanCard(**kanban_card.dict(), user_id = user.id)
+#     session.add(new_kanban_card)
+#     await session.commit()
+#     await session.refresh(new_kanban_card)
+
+#     new_calendar_event = CalendarEvent(
+#         title=f'Task: {kanban_card.task}',
+#         start=kanban_card.datetime,
+#         end=kanban_card.datetime + datetime.deltatime(hours=1),
+#         user_id=user.id
+#     )
+#     session.add(new_calendar_event)
+#     await session.commit()
+
+#     return new_kanban_card
+
 # endregion
 
 # region Google Calendar API
@@ -584,6 +632,7 @@ app.include_router(company_router, prefix="/api", tags=["companies"])
 app.include_router(phone_router, prefix="/api", tags=["phone-lists"])
 app.include_router(soundfile_router, prefix="/api", tags=["soundfiles"])
 app.include_router(calendar_router, prefix='/api', tags=['calendars'])
+app.include_router(kanban_cards_router, prefix='/api', tags=['kanban'])
 
 app.include_router(
     fastapi_users.get_auth_router(auth_backend), prefix="/auth/jwt", tags=["auth"]

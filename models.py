@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 
 from fastapi_users_db_sqlalchemy import SQLAlchemyBaseUserTable, SQLAlchemyBaseOAuthAccountTable
 from pydantic import BaseModel
-from sqlalchemy import Column, ForeignKey, Integer, String, Time, JSON, ARRAY
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Time, JSON, ARRAY
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import DeclarativeBase, Mapped, relationship, declared_attr
 
@@ -25,6 +25,8 @@ class User(SQLAlchemyBaseUserTable[int], Base):
     oauth_accounts = relationship(
         "OAuthAccount", lazy="joined"
     )
+    kanban_cards = relationship("KanbanCard", back_populates="user")
+    calendar_events = relationship("CalendarEvent", back_populates="user")
 
 
 class CompanyModel(Base):
@@ -57,6 +59,51 @@ class SoundFileModel(Base):
     name = Column(String)
     file_path = Column(String)
     user_id = Column(Integer, ForeignKey('user.id'))
+
+
+class KanbanCard(Base):
+    __tablename__ = 'kanban_cards'
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)
+    company = Column(String, index=True)
+    phone = Column(String, index=True)
+    comment = Column(String)
+    task = Column(String)
+    datetime = Column(DateTime)
+
+    column_id = Column(Integer, ForeignKey("kanban_columns.id"))
+    column = relationship("KanbanColumn", back_populates="tasks")
+
+    user_id = Column(Integer, ForeignKey("user.id"))
+    user = relationship("User", back_populates="kanban_cards")
+
+    event = relationship("CalendarEvent", back_populates="kanban_card", uselist=False)
+
+
+class KanbanColumn(Base):
+    __tablename__ = 'kanban_columns'
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, index=True)
+    tag_color = Column(String)
+
+    tasks = relationship("KanbanCard", back_populates="column")
+
+
+class CalendarEvent(Base):
+    __tablename__ = 'calendar_events'
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, index=True)
+    start = Column(DateTime)
+    end = Column(DateTime)
+
+    user_id = Column(Integer, ForeignKey('user.id'))
+    user = relationship("User", back_populates="calendar_events")
+
+    kanban_card_id = Column(Integer, ForeignKey('kanban_cards.id'))
+    kanban_card = relationship("KanbanCard", back_populates="event")
 
 
 # class CRMKanbanTaskModel(Base):
