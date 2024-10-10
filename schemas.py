@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from fastapi_users import schemas
 from pydantic import BaseModel
@@ -81,7 +81,8 @@ class KanbanCardCreate(BaseModel):
     phone: str
     comment: str
     task: str
-    datetime: datetime
+    datetime: str
+    column_id: int
 
 
 class KanbanColumnCreate(BaseModel):
@@ -91,8 +92,9 @@ class KanbanColumnCreate(BaseModel):
 
 class CalendarEventCreate(BaseModel):
     title: str
-    start: datetime
-    end: datetime
+    start: str
+    end: str
+    # description: Optional[str] = None
 
 
 # class CRMKanbanTaskCreate(BaseModel):

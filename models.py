@@ -25,8 +25,8 @@ class User(SQLAlchemyBaseUserTable[int], Base):
     oauth_accounts = relationship(
         "OAuthAccount", lazy="joined"
     )
-    kanban_cards = relationship("KanbanCard", back_populates="user")
-    calendar_events = relationship("CalendarEvent", back_populates="user")
+    # kanban_cards = relationship("KanbanCard", back_populates="user")
+    # calendar_events = relationship("CalendarEvent", back_populates="user")
 
 
 class CompanyModel(Base):
@@ -70,13 +70,13 @@ class KanbanCard(Base):
     phone = Column(String, index=True)
     comment = Column(String)
     task = Column(String)
-    datetime = Column(DateTime)
+    datetime = Column(String)
 
     column_id = Column(Integer, ForeignKey("kanban_columns.id"))
     column = relationship("KanbanColumn", back_populates="tasks")
 
     user_id = Column(Integer, ForeignKey("user.id"))
-    user = relationship("User", back_populates="kanban_cards")
+    user = relationship("User")
 
     event = relationship("CalendarEvent", back_populates="kanban_card", uselist=False)
 
@@ -96,11 +96,11 @@ class CalendarEvent(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, index=True)
-    start = Column(DateTime)
-    end = Column(DateTime)
+    start = Column(String)
+    end = Column(String)
 
     user_id = Column(Integer, ForeignKey('user.id'))
-    user = relationship("User", back_populates="calendar_events")
+    user = relationship("User")
 
     kanban_card_id = Column(Integer, ForeignKey('kanban_cards.id'))
     kanban_card = relationship("KanbanCard", back_populates="event")

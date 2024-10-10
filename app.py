@@ -16,7 +16,7 @@ import shutil
 from pydub import AudioSegment
 from db import User, create_db_and_tables, get_async_session
 from models import CalendarEvent, KanbanCard, KanbanColumn, SoundFileModel, PhoneListModel, CompanyModel
-from schemas import KanbanCardCreate, KanbanColumnCreate, UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate, PhoneList, PhoneListCreate, \
+from schemas import CalendarEventCreate, KanbanCardCreate, KanbanColumnCreate, UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate, PhoneList, PhoneListCreate, \
     CompanyCreate, Company, CallFile, CreateEventRequest
 from users import auth_backend, current_active_user, fastapi_users, google_oauth_client, openid_oauth_client, SECRET, get_all_users, create_user_pro, \
     create_phone_list_pro, create_sound_file_pro, create_company_pro
@@ -499,27 +499,105 @@ async def get_kanban_column(
         raise HTTPException(status_code=404, detail="Columns not found")
     return column
 
-# @kanban_cards_router.post('/kanban-cards', response_model=KanbanCard)
-# async def create_kanban_card(
-#     kanban_card: KanbanCardCreate,
-#     user: User = Depends(current_active_user),
-#     session: AsyncSession = Depends(get_async_session),
-# ):
-#     new_kanban_card = KanbanCard(**kanban_card.dict(), user_id = user.id)
-#     session.add(new_kanban_card)
-#     await session.commit()
-#     await session.refresh(new_kanban_card)
 
-#     new_calendar_event = CalendarEvent(
-#         title=f'Task: {kanban_card.task}',
-#         start=kanban_card.datetime,
-#         end=kanban_card.datetime + datetime.deltatime(hours=1),
-#         user_id=user.id
-#     )
-#     session.add(new_calendar_event)
-#     await session.commit()
+@kanban_cards_router.post('/kanban-cards')
+async def create_kanban_card(
+    kanban_card: KanbanCardCreate,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    new_kanban_card = KanbanCard(**kanban_card.dict(), user_id = user.id)
+    session.add(new_kanban_card)
+    await session.commit()
+    await session.refresh(new_kanban_card)
 
-#     return new_kanban_card
+    if new_kanban_card is None:
+        raise HTTPException(status_code=404, detail="Kanban card not found")
+
+    new_calendar_event = CalendarEvent(
+        title=f'Task: {kanban_card.task}',
+        start=kanban_card.datetime,
+        end=kanban_card.datetime + datetime.deltatime(hours=1),
+        user_id=user.id,
+        kanban_card_id=new_kanban_card.id
+    )
+    session.add(new_calendar_event)
+    await session.commit()
+
+    if new_calendar_event is None:
+        raise HTTPException(status_code=404, detail="Calendar event not found")
+
+    return { "Card: ", new_kanban_card, "Event: ", new_calendar_event }
+
+
+@kanban_cards_router.get('/kanban_cards')
+async def get_kanban_card(
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    query = select(KanbanCard).filter_by(user_id=user.id)
+    result = await session.execute(query)
+    kanban_card = result.scalars().all()
+    return kanban_card
+
+
+@kanban_cards_router.post('/calendar_events')
+async def create_calendar_event(
+    calendar_event: CalendarEventCreate,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    new_calendar_event = CalendarEvent(**calendar_event.dict(), user_id=user.id)
+    session.add(new_calendar_event)
+    await session.commit()
+    await session.refresh(new_calendar_event)
+    return new_calendar_event
+
+
+@kanban_cards_router.get('/calendar_events')
+async def get_calendar_event(
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    query = select(CalendarEvent).filter_by(user_id=user.id)
+    result = await session.execute(query)
+    calendar_event = result.scalars().all()
+    return calendar_event
+
+
+@kanban_cards_router.put("/calendar_events/{calendar_event_id}")
+async def update_calendar_event(
+        calendar_event_id: int,
+        calendar_event: CalendarEventCreate,
+        user: User = Depends(current_active_user),
+        session: AsyncSession = Depends(get_async_session)
+):
+    query = select(CalendarEvent).filter_by(id=calendar_event_id, user_id=user.id)
+    result = await session.execute(query)
+    new_calendar_event = result.scalars().first()
+    if new_calendar_event is None:
+        raise HTTPException(status_code=404, detail="Calendar event not found")
+    for var, value in vars(calendar_event).items():
+        setattr(new_calendar_event, var, value) if value else None
+    session.add(new_calendar_event)
+    await session.commit()
+    await session.refresh(new_calendar_event)
+    return new_calendar_event
+
+
+@kanban_cards_router.delete("/calendar_events/{calendar_event_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_calendar_event(
+        calendar_event_id: int,
+        user: User = Depends(current_active_user),
+        session: AsyncSession = Depends(get_async_session)
+):
+    query = select(CalendarEvent).filter_by(id=calendar_event_id, user_id=user.id)
+    result = await session.execute(query)
+    calendar_event = result.scalars().first()
+    if calendar_event is None:
+        raise HTTPException(status_code=404, detail="Calendar event not found")
+    await session.delete(calendar_event)
+    await session.commit()
 
 # endregion
 
