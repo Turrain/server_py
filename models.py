@@ -70,7 +70,7 @@ class KanbanCard(Base):
     phone = Column(String, index=True)
     comment = Column(String)
     task = Column(String)
-    datetime = Column(String)
+    datetime = Column(DateTime)
 
     column_id = Column(Integer, ForeignKey("kanban_columns.id"))
     column = relationship("KanbanColumn", back_populates="tasks")
@@ -86,7 +86,10 @@ class KanbanColumn(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, index=True)
-    tag_color = Column(String)
+    tag_color = Column(String, nullable=True)
+
+    user_id = Column(Integer, ForeignKey("user.id"))
+    user = relationship("User")
 
     tasks = relationship("KanbanCard", back_populates="column")
 
@@ -96,8 +99,8 @@ class CalendarEvent(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, index=True)
-    start = Column(String)
-    end = Column(String)
+    start = Column(DateTime)
+    end = Column(DateTime)
 
     user_id = Column(Integer, ForeignKey('user.id'))
     user = relationship("User")

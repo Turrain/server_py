@@ -81,19 +81,19 @@ class KanbanCardCreate(BaseModel):
     phone: str
     comment: str
     task: str
-    datetime: str
+    datetime: datetime.datetime
     column_id: int
 
 
 class KanbanColumnCreate(BaseModel):
     title: str
-    tag_color: str
+    tag_color: Optional[str] = None
 
 
 class CalendarEventCreate(BaseModel):
     title: str
-    start: str
-    end: str
+    start: datetime.datetime
+    end: datetime.datetime
     # description: Optional[str] = None
 
 
