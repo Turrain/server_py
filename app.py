@@ -465,10 +465,10 @@ kanban_cards_router = APIRouter()
 @kanban_cards_router.post('/kanban_columns')
 async def create_kanban_column(
     column: KanbanColumnCreate,
-    user: User = Depends(current_active_user),
+    # user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session)
 ):
-    new_column = KanbanColumn(**column.dict(), user_id=user.id)
+    new_column = KanbanColumn(**column.dict())
     session.add(new_column)
     await session.commit()
     await session.refresh(new_column)
@@ -477,10 +477,10 @@ async def create_kanban_column(
 
 @kanban_cards_router.get('/kanban_columns')
 async def get_kanban_column(
-    user: User = Depends(current_active_user),
+    # user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session)
 ):
-    query = select(KanbanColumn).options(selectinload(KanbanColumn.tasks)).filter_by(user_id=user.id)
+    query = select(KanbanColumn).options(selectinload(KanbanColumn.tasks))
     result = await session.execute(query)
     column = result.scalars().all()
 
@@ -493,10 +493,10 @@ async def get_kanban_column(
 async def update_kanban_column(
         kanban_column_id: int,
         kanban_column: KanbanColumnCreate,
-        user: User = Depends(current_active_user),
+        # user: User = Depends(current_active_user),
         session: AsyncSession = Depends(get_async_session)
 ):
-    query = select(KanbanColumn).filter_by(id=kanban_column_id, user_id=user.id)
+    query = select(KanbanColumn).filter_by(id=kanban_column_id)
     result = await session.execute(query)
     new_kanban_column = result.scalars().first()
     if new_kanban_column is None:
@@ -512,10 +512,10 @@ async def update_kanban_column(
 @kanban_cards_router.delete("/kanban_columns/{kanban_column_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_kanban_column(
         kanban_column_id: int,
-        user: User = Depends(current_active_user),
+        # user: User = Depends(current_active_user),
         session: AsyncSession = Depends(get_async_session)
 ):
-    query = select(KanbanColumn).filter_by(id=kanban_column_id, user_id=user.id)
+    query = select(KanbanColumn).filter_by(id=kanban_column_id)
     result = await session.execute(query)
     kanban_column = result.scalars().first()
     if kanban_column is None:
@@ -527,10 +527,10 @@ async def delete_kanban_column(
 @kanban_cards_router.post('/kanban_cards')
 async def create_kanban_card(
     kanban_card: KanbanCardCreate,
-    user: User = Depends(current_active_user),
+    # user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session),
 ):
-    new_kanban_card = KanbanCard(**kanban_card.dict(), user_id=user.id)
+    new_kanban_card = KanbanCard(**kanban_card.dict())
     session.add(new_kanban_card)
     await session.commit()
     await session.refresh(new_kanban_card)
@@ -542,7 +542,7 @@ async def create_kanban_card(
         title=f'Task: {kanban_card.task}',
         start=kanban_card.datetime,
         end=kanban_card.datetime + datetime.timedelta(hours=1),
-        user_id=user.id,
+        # user_id=user.id,
         kanban_card_id=new_kanban_card.id
     )
     session.add(new_calendar_event)
@@ -556,10 +556,10 @@ async def create_kanban_card(
 
 @kanban_cards_router.get('/kanban_cards')
 async def get_kanban_card(
-    user: User = Depends(current_active_user),
+    # user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session)
 ):
-    query = select(KanbanCard).filter_by(user_id=user.id)
+    query = select(KanbanCard)
     result = await session.execute(query)
     kanban_card = result.scalars().all()
     return kanban_card
@@ -569,10 +569,10 @@ async def get_kanban_card(
 async def update_kanban_card(
         kanban_card_id: int,
         kanban_card: KanbanCardCreate,
-        user: User = Depends(current_active_user),
+        # user: User = Depends(current_active_user),
         session: AsyncSession = Depends(get_async_session)
 ):
-    query = select(KanbanCard).filter_by(id=kanban_card_id, user_id=user.id)
+    query = select(KanbanCard).filter_by(id=kanban_card_id)
     result = await session.execute(query)
     new_kanban_card = result.scalars().first()
     if new_kanban_card is None:
@@ -590,7 +590,7 @@ async def update_kanban_card(
     if new_calendar_event:
         new_calendar_event.title = f'Task: {new_kanban_card.task}'
         new_calendar_event.start = new_kanban_card.datetime
-        new_calendar_event.end = new_kanban_card.datetime + datetime.timedelta(hours=1),
+        new_calendar_event.end = new_kanban_card.datetime + datetime.timedelta(hours=1)
         await session.commit()
         await session.refresh(new_calendar_event)
 
@@ -600,7 +600,7 @@ async def update_kanban_card(
 @kanban_cards_router.delete("/kanban_cards/{kanban_card_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_kanban_card(
         kanban_card_id: int,
-        user: User = Depends(current_active_user),
+        # user: User = Depends(current_active_user),
         session: AsyncSession = Depends(get_async_session)
 ):
     query = select(CalendarEvent).filter_by(kanban_card_id=kanban_card_id)
@@ -611,7 +611,7 @@ async def delete_kanban_card(
     await session.delete(calendar_event)
     await session.commit()
 
-    query = select(KanbanCard).filter_by(id=kanban_card_id, user_id=user.id)
+    query = select(KanbanCard).filter_by(id=kanban_card_id)
     result = await session.execute(query)
     kanban_card = result.scalars().first()
     if kanban_card is None:
@@ -628,10 +628,10 @@ calendar_envents_router = APIRouter()
 @calendar_envents_router.post('/calendar_events')
 async def create_calendar_event(
     calendar_event: CalendarEventCreate,
-    user: User = Depends(current_active_user),
+    # user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session)
 ):
-    new_calendar_event = CalendarEvent(**calendar_event.dict(), user_id=user.id)
+    new_calendar_event = CalendarEvent(**calendar_event.dict())
     session.add(new_calendar_event)
     await session.commit()
     await session.refresh(new_calendar_event)
@@ -640,10 +640,10 @@ async def create_calendar_event(
 
 @calendar_envents_router.get('/calendar_events')
 async def get_calendar_event(
-    user: User = Depends(current_active_user),
+    # user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session)
 ):
-    query = select(CalendarEvent).filter_by(user_id=user.id)
+    query = select(CalendarEvent)
     result = await session.execute(query)
     calendar_event = result.scalars().all()
     return calendar_event
@@ -653,10 +653,10 @@ async def get_calendar_event(
 async def update_calendar_event(
         calendar_event_id: int,
         calendar_event: CalendarEventCreate,
-        user: User = Depends(current_active_user),
+        # user: User = Depends(current_active_user),
         session: AsyncSession = Depends(get_async_session)
 ):
-    query = select(CalendarEvent).filter_by(id=calendar_event_id, user_id=user.id)
+    query = select(CalendarEvent).filter_by(id=calendar_event_id)
     result = await session.execute(query)
     new_calendar_event = result.scalars().first()
     if new_calendar_event is None:
@@ -672,10 +672,10 @@ async def update_calendar_event(
 @calendar_envents_router.delete("/calendar_events/{calendar_event_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_calendar_event(
         calendar_event_id: int,
-        user: User = Depends(current_active_user),
+        # user: User = Depends(current_active_user),
         session: AsyncSession = Depends(get_async_session)
 ):
-    query = select(CalendarEvent).filter_by(id=calendar_event_id, user_id=user.id)
+    query = select(CalendarEvent).filter_by(id=calendar_event_id)
     result = await session.execute(query)
     calendar_event = result.scalars().first()
     if calendar_event is None:
