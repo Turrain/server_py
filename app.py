@@ -4,7 +4,7 @@ import datetime
 import random
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile, File, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile, File, Request, Response, Query
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -480,7 +480,7 @@ async def get_kanban_column(
     # user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session)
 ):
-    query = select(KanbanColumn).options(selectinload(KanbanColumn.tasks))
+    query = select(KanbanColumn)
     result = await session.execute(query)
     column = result.scalars().all()
 
@@ -556,10 +556,38 @@ async def create_kanban_card(
 
 @kanban_cards_router.get('/kanban_cards')
 async def get_kanban_card(
+    limit: int = Query(10, ge=1),
+    offset: int = Query(0, ge=0),
     # user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session)
 ):
-    query = select(KanbanCard)
+    query = select(KanbanCard).offset(offset).limit(limit)
+    result = await session.execute(query)
+    kanban_card = result.scalars().all()
+    return kanban_card
+
+
+@kanban_cards_router.get('/kanban_cards/{kanban_column_id}')
+async def get_kanban_card(
+    kanban_column_id: int,
+    limit: int = Query(10, ge=1),
+    offset: int = Query(0, ge=0),
+    # user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    query = select(KanbanCard).filter_by(column_id=kanban_column_id).offset(offset).limit(limit)
+    result = await session.execute(query)
+    kanban_card = result.scalars().all()
+    return kanban_card
+
+
+@kanban_cards_router.get('/kanban_card/{kanban_card_id}')
+async def get_kanban_card(
+    kanban_card_id: int,
+    # user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    query = select(KanbanCard).filter_by(id=kanban_card_id)
     result = await session.execute(query)
     kanban_card = result.scalars().all()
     return kanban_card
