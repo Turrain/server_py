@@ -137,3 +137,9 @@ cython_debug/
 
 # JetBrains IDEs
 .idea/
+
+# Jupyter
+*.ipynb
+
+# Excel
+*.xlsx
