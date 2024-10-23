@@ -68,9 +68,9 @@ class KanbanCard(Base):
     name = Column(String, index=True)
     company = Column(String, index=True)
     phone = Column(String, index=True)
-    comment = Column(String)
-    task = Column(String)
-    datetime = Column(DateTime)
+    comment = Column(String, nullable=True)
+    task = Column(String, nullable=True)
+    datetime = Column(DateTime, nullable=True)
 
     column_id = Column(Integer, ForeignKey("kanban_columns.id"))
     column = relationship("KanbanColumn", back_populates="tasks")

@@ -1,9 +1,10 @@
-import datetime
+import datetime as dt
 import uuid
 from typing import List, Dict, Optional
 
 from fastapi_users import schemas
 from pydantic import BaseModel
+from sqlalchemy import DateTime
 
 
 class UserRead(schemas.BaseUser[int]):
@@ -47,8 +48,8 @@ class CompanyCreate(BaseModel):
     day_limit: int
     sound_file_id: int
     status: int
-    start_time: datetime.time
-    end_time: datetime.time
+    start_time: dt.time
+    end_time: dt.time
     days: List[int]
     reaction: Dict[str, str]
     phones_id: int
@@ -76,12 +77,12 @@ class CreateEventRequest(BaseModel):
 
 
 class KanbanCardCreate(BaseModel):
-    name: str
-    company: str
-    phone: str
-    comment: str
-    task: str
-    datetime: datetime.datetime
+    name: Optional[str] = None
+    company: Optional[str] = None
+    phone: Optional[str] = None
+    comment: Optional[str] = None
+    task: Optional[str] = None
+    datetime: Optional[dt.datetime] = None
     column_id: int
 
 
@@ -92,8 +93,8 @@ class KanbanColumnCreate(BaseModel):
 
 class CalendarEventCreate(BaseModel):
     title: str
-    start: datetime.datetime
-    end: datetime.datetime
+    start: dt.datetime
+    end: dt.datetime
     # description: Optional[str] = None
 
 
