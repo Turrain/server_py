@@ -2,9 +2,11 @@ import os
 from contextlib import asynccontextmanager
 import datetime
 import random
+from typing import List
+
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile, File, Request, Response, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile, File, Request, Response, Query, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -460,10 +462,57 @@ async def delete_sound_file(
 
 # region CRM Kanban
 
-kanban_cards_router = APIRouter()
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
 
-@kanban_cards_router.post('/kanban_columns')
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            await connection.send_json(message)
+
+
+manager = ConnectionManager()
+
+
+@app.websocket('/ws/kanban')
+async def websocket_endpoint(
+    websocket: WebSocket,
+    session: AsyncSession = Depends(get_async_session)
+):
+    await manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            action = data.get('action')
+            if action == "create_column":
+                await create_kanban_column(websocket, data["column"], session)
+            elif action == "get_columns":
+                await get_kanban_columns(websocket, session)
+            elif action == "update_column":
+                await update_kanban_column(websocket, data["column_id"], data["column"], session)
+            elif action == "delete_column":
+                await delete_kanban_column(websocket, data["column_id"], session)
+            elif action == "create_card":
+                await create_kanban_card(websocket, data["card"], session)
+            elif action == "get_cards":
+                await get_kanban_cards(websocket, session, data.get("kanban_column_id"))
+            elif action == "update_card":
+                await update_kanban_card(websocket, data["card_id"], data["card"], session)
+            elif action == "delete_card":
+                await delete_kanban_card(websocket, data["card_id"], session)
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+
 async def create_kanban_column(
+    websocket: WebSocket,
     column: KanbanColumnCreate,
     # user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session)
@@ -472,11 +521,11 @@ async def create_kanban_column(
     session.add(new_column)
     await session.commit()
     await session.refresh(new_column)
-    return new_column
+    await manager.broadcast({"action": "create_column", "column": new_column})
 
 
-@kanban_cards_router.get('/kanban_columns')
-async def get_kanban_column(
+async def get_kanban_columns(
+    websocket: WebSocket,
     # user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session)
 ):
@@ -484,13 +533,18 @@ async def get_kanban_column(
     result = await session.execute(query)
     column = result.scalars().all()
 
-    if column is None:
-        raise HTTPException(status_code=404, detail="Columns not found")
-    return column
+    column_data = [{
+        "id": col.id,
+        "title": col.title,
+        "tasks": [],
+        "tag_color": col.tag_color
+    } for col in column]
+
+    await websocket.send_json({"action": "get_columns", "columns": column_data})
 
 
-@kanban_cards_router.put("/kanban_columns/{kanban_column_id}")
 async def update_kanban_column(
+        websocket: WebSocket,
         kanban_column_id: int,
         kanban_column: KanbanColumnCreate,
         # user: User = Depends(current_active_user),
@@ -499,18 +553,20 @@ async def update_kanban_column(
     query = select(KanbanColumn).filter_by(id=kanban_column_id)
     result = await session.execute(query)
     new_kanban_column = result.scalars().first()
-    if new_kanban_column is None:
-        raise HTTPException(status_code=404, detail="Column not found")
-    for var, value in vars(kanban_column).items():
-        setattr(new_kanban_column, var, value) if value else None
-    session.add(new_kanban_column)
-    await session.commit()
-    await session.refresh(new_kanban_column)
-    return new_kanban_column
+
+    if new_kanban_column:
+        for var, value in vars(kanban_column).items():
+            setattr(new_kanban_column, var, value) if value else None
+        session.add(new_kanban_column)
+        await session.commit()
+        await session.refresh(new_kanban_column)
+        await manager.broadcast({"action": "update_column", "column": new_kanban_column})
+    else:
+        await websocket.send_json({"error": "Column not found"})
 
 
-@kanban_cards_router.delete("/kanban_columns/{kanban_column_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_kanban_column(
+        websocket: WebSocket,
         kanban_column_id: int,
         # user: User = Depends(current_active_user),
         session: AsyncSession = Depends(get_async_session)
@@ -518,14 +574,16 @@ async def delete_kanban_column(
     query = select(KanbanColumn).filter_by(id=kanban_column_id)
     result = await session.execute(query)
     kanban_column = result.scalars().first()
-    if kanban_column is None:
-        raise HTTPException(status_code=404, detail="Column not found")
-    await session.delete(kanban_column)
-    await session.commit()
+    if kanban_column:
+        await session.delete(kanban_column)
+        await session.commit()
+        await manager.broadcast({"action": "delete_column", "kanban_column_id": kanban_column_id})
+    else:
+        await websocket.send_json({"error": "Column not found"})
 
 
-@kanban_cards_router.post('/kanban_cards')
 async def create_kanban_card(
+    websocket: WebSocket,
     kanban_card: KanbanCardCreate,
     # user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session),
@@ -534,9 +592,6 @@ async def create_kanban_card(
     session.add(new_kanban_card)
     await session.commit()
     await session.refresh(new_kanban_card)
-
-    if new_kanban_card is None:
-        raise HTTPException(status_code=404, detail="Card not found")
 
     new_calendar_event = CalendarEvent(
         title=f'Task: {kanban_card.task}',
@@ -548,54 +603,52 @@ async def create_kanban_card(
     session.add(new_calendar_event)
     await session.commit()
 
-    if new_calendar_event is None:
-        raise HTTPException(status_code=404, detail="Calendar event not found")
-
-    return new_kanban_card
+    await manager.broadcast({"action": "create_card", "kanban_card": new_kanban_card})
 
 
-@kanban_cards_router.get('/kanban_cards')
-async def get_kanban_card(
-    limit: int = Query(10, ge=1),
-    offset: int = Query(0, ge=0),
+async def get_kanban_cards(
+    websocket: WebSocket,
+    # limit: int = Query(10, ge=1),
+    # offset: int = Query(0, ge=0),
     # user: User = Depends(current_active_user),
-    session: AsyncSession = Depends(get_async_session)
+    session: AsyncSession = Depends(get_async_session),
+    kanban_column_id: int = None,
 ):
-    query = select(KanbanCard).offset(offset).limit(limit)
+    query = select(KanbanCard)
+    if kanban_column_id:
+        query = query.filter_by(column_id=kanban_column_id)
     result = await session.execute(query)
     kanban_card = result.scalars().all()
-    return kanban_card
+    await websocket.send_json({"action": "get_cards", "kanban_cards": [card for card in kanban_card]})
 
 
-@kanban_cards_router.get('/kanban_cards/{kanban_column_id}')
-async def get_kanban_card(
-    kanban_column_id: int,
-    limit: int = Query(10, ge=1),
-    offset: int = Query(0, ge=0),
-    # user: User = Depends(current_active_user),
-    session: AsyncSession = Depends(get_async_session)
-):
-    query = select(KanbanCard).filter_by(column_id=kanban_column_id).offset(offset).limit(limit)
-    result = await session.execute(query)
-    kanban_card = result.scalars().all()
-    return kanban_card
+# async def get_kanban_card(
+#     kanban_column_id: int,
+#     limit: int = Query(10, ge=1),
+#     offset: int = Query(0, ge=0),
+#     # user: User = Depends(current_active_user),
+#     session: AsyncSession = Depends(get_async_session)
+# ):
+#     query = select(KanbanCard).filter_by(column_id=kanban_column_id).offset(offset).limit(limit)
+#     result = await session.execute(query)
+#     kanban_card = result.scalars().all()
+#     return kanban_card
 
 
-@kanban_cards_router.get('/kanban_card/{kanban_card_id}')
-async def get_kanban_card(
-    kanban_card_id: int,
-    # user: User = Depends(current_active_user),
-    session: AsyncSession = Depends(get_async_session)
-):
-    query = select(KanbanCard).filter_by(id=kanban_card_id)
-    result = await session.execute(query)
-    kanban_card = result.scalars().all()
-    return kanban_card
+# async def get_kanban_card(
+#     kanban_card_id: str,
+#     # user: User = Depends(current_active_user),
+#     session: AsyncSession = Depends(get_async_session)
+# ):
+#     query = select(KanbanCard).filter_by(id=kanban_card_id)
+#     result = await session.execute(query)
+#     kanban_card = result.scalars().all()
+#     return kanban_card
 
 
-@kanban_cards_router.put("/kanban_cards/{kanban_card_id}")
 async def update_kanban_card(
-        kanban_card_id: int,
+        websocket: WebSocket,
+        kanban_card_id: str,
         kanban_card: KanbanCardCreate,
         # user: User = Depends(current_active_user),
         session: AsyncSession = Depends(get_async_session)
@@ -603,55 +656,58 @@ async def update_kanban_card(
     query = select(KanbanCard).filter_by(id=kanban_card_id)
     result = await session.execute(query)
     new_kanban_card = result.scalars().first()
-    if new_kanban_card is None:
-        raise HTTPException(status_code=404, detail="Card not found")
-    for var, value in vars(kanban_card).items():
-        setattr(new_kanban_card, var, value) if value else None
-    session.add(new_kanban_card)
-    await session.commit()
-    await session.refresh(new_kanban_card)
-
-    query = select(CalendarEvent).filter_by(kanban_card_id=kanban_card_id)
-    result = await session.execute(query)
-    new_calendar_event = result.scalars().first()
-
-    if new_calendar_event:
-        new_calendar_event.title = f'Task: {new_kanban_card.task}'
-        new_calendar_event.start = new_kanban_card.datetime
-        new_calendar_event.end = new_kanban_card.datetime + datetime.timedelta(hours=1)
+    if new_kanban_card:
+        for var, value in vars(kanban_card).items():
+            setattr(new_kanban_card, var, value) if value else None
+        session.add(new_kanban_card)
         await session.commit()
-        await session.refresh(new_calendar_event)
+        await session.refresh(new_kanban_card)
 
-    return new_kanban_card
+        query = select(CalendarEvent).filter_by(kanban_card_id=kanban_card_id)
+        result = await session.execute(query)
+        new_calendar_event = result.scalars().first()
+
+        if new_calendar_event:
+            new_calendar_event.title = f'Task: {new_kanban_card.task}'
+            new_calendar_event.start = new_kanban_card.datetime
+            new_calendar_event.end = new_kanban_card.datetime + datetime.timedelta(hours=1)
+            await session.commit()
+            await session.refresh(new_calendar_event)
+
+        await manager.broadcast({"action": "update_card", "kanban_card": new_kanban_card})
+    else:
+        await websocket.send_json({"error": "Card not found"})
 
 
-@kanban_cards_router.delete("/kanban_cards/{kanban_card_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_kanban_card(
-        kanban_card_id: int,
+        websocket: WebSocket,
+        kanban_card_id: str,
         # user: User = Depends(current_active_user),
         session: AsyncSession = Depends(get_async_session)
 ):
     query = select(CalendarEvent).filter_by(kanban_card_id=kanban_card_id)
     result = await session.execute(query)
     calendar_event = result.scalars().all()
-    if calendar_event is None:
-        raise HTTPException(status_code=404, detail="Calendar event not found")
-    await session.delete(calendar_event)
-    await session.commit()
+    if calendar_event:
+        await session.delete(calendar_event)
+        await session.commit()
 
     query = select(KanbanCard).filter_by(id=kanban_card_id)
     result = await session.execute(query)
     kanban_card = result.scalars().first()
-    if kanban_card is None:
-        raise HTTPException(status_code=404, detail="Card not found")
-    await session.delete(kanban_card)
-    await session.commit()
+    if kanban_card:
+        await session.delete(kanban_card)
+        await session.commit()
+        await manager.broadcast({"action": "delete_card", "kanban_card_id": kanban_card_id})
+    else:
+        await websocket.send_json({"error": "Card not found"})
 
 # endregion
 
 # region Calendar Events
 
 calendar_envents_router = APIRouter()
+
 
 @calendar_envents_router.post('/calendar_events')
 async def create_calendar_event(
@@ -822,7 +878,7 @@ app.include_router(company_router, prefix="/api", tags=["companies"])
 app.include_router(phone_router, prefix="/api", tags=["phone-lists"])
 app.include_router(soundfile_router, prefix="/api", tags=["soundfiles"])
 app.include_router(calendar_router, prefix='/api', tags=['calendars'])
-app.include_router(kanban_cards_router, prefix='/api', tags=['kanban'])
+# app.include_router(kanban_cards_router, prefix='/api', tags=['kanban'])
 app.include_router(calendar_envents_router, prefix='/api', tags=['calendar'])
 
 app.include_router(

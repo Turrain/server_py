@@ -19,7 +19,6 @@ class OAuthAccount(SQLAlchemyBaseOAuthAccountTable[int], Base):
     def user_id(cls):
         return Column(Integer, ForeignKey("user.id", ondelete="cascade"), nullable=False)
 
-
 class User(SQLAlchemyBaseUserTable[int], Base):
     id = Column(Integer, primary_key=True)
     oauth_accounts = relationship(
@@ -64,7 +63,7 @@ class SoundFileModel(Base):
 class KanbanCard(Base):
     __tablename__ = 'kanban_cards'
     
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True)
     name = Column(String, index=True)
     company = Column(String, index=True)
     phone = Column(String, index=True)
