@@ -19,7 +19,7 @@ import shutil
 from pydub import AudioSegment
 from db import User, create_db_and_tables, get_async_session
 from models import CalendarEvent, KanbanCard, KanbanColumn, SoundFileModel, PhoneListModel, CompanyModel
-from schemas import CalendarEventCreate, KanbanCardCreate, KanbanColumnCreate, UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate, PhoneList, PhoneListCreate, \
+from schemas import CalendarEventCreate, KanbanCardCreate, KanbanColumnCreate, KanbanColumnResponse, UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate, PhoneList, PhoneListCreate, \
     CompanyCreate, Company, CallFile, CreateEventRequest
 from users import auth_backend, current_active_user, fastapi_users, google_oauth_client, openid_oauth_client, SECRET, get_all_users, create_user_pro, \
     create_phone_list_pro, create_sound_file_pro, create_company_pro
@@ -529,18 +529,18 @@ async def get_kanban_columns(
     # user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session)
 ):
-    query = select(KanbanColumn)
+    query = select(KanbanColumn).options(selectinload(KanbanColumn.tasks))
     result = await session.execute(query)
     column = result.scalars().all()
 
-    column_data = [{
-        "id": col.id,
-        "title": col.title,
-        "tasks": [],
-        "tag_color": col.tag_color
-    } for col in column]
+    # column_data = [{
+    #     "id": col.id,
+    #     "title": col.title,
+    #     "tasks": [],
+    #     "tag_color": col.tag_color
+    # } for col in column]
 
-    await websocket.send_json({"action": "get_columns", "columns": column_data})
+    await websocket.send_json({"action": "get_columns", "columns": [KanbanColumnResponse.model_validate(col).model_dump(mode='json') for col in column]})
 
 
 async def update_kanban_column(
@@ -619,7 +619,8 @@ async def get_kanban_cards(
         query = query.filter_by(column_id=kanban_column_id)
     result = await session.execute(query)
     kanban_card = result.scalars().all()
-    await websocket.send_json({"action": "get_cards", "kanban_cards": [card for card in kanban_card]})
+
+    await websocket.send_json({"action": "get_cards", "kanban_cards": [KanbanCardCreate.model_validate(card).model_dump_json() for card in kanban_card]})
 
 
 # async def get_kanban_card(

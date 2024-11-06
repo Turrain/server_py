@@ -85,10 +85,44 @@ class KanbanCardCreate(BaseModel):
     datetime: Optional[dt.datetime] = None
     column_id: int
 
+    class Config:
+        from_attributes = True
+
+
+class KanbanCardResponse(BaseModel):
+    id: str
+    name: Optional[str] = None
+    company: Optional[str] = None
+    phone: Optional[str] = None
+    comment: Optional[str] = None
+    task: Optional[str] = None
+    datetime: Optional[dt.datetime] = None
+    column_id: int
+
+    class Config:
+        from_attributes = True
+
+        json_encoders = {
+            dt.datetime: lambda v: v.isoformat()
+        }
+
 
 class KanbanColumnCreate(BaseModel):
     title: str
     tag_color: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class KanbanColumnResponse(BaseModel):
+    id: int
+    title: str
+    tag_color: str
+    tasks: List[KanbanCardResponse]
+
+    class Config:
+        from_attributes = True
 
 
 class CalendarEventCreate(BaseModel):
