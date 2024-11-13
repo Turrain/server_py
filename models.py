@@ -3,13 +3,21 @@ from typing import Dict, List, Optional
 
 from fastapi_users_db_sqlalchemy import SQLAlchemyBaseUserTable, SQLAlchemyBaseOAuthAccountTable
 from pydantic import BaseModel
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Time, JSON, ARRAY
+from sqlalchemy import Table, Column, DateTime, ForeignKey, Integer, String, Time, JSON, ARRAY
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import DeclarativeBase, Mapped, relationship, declared_attr
 
 
 class Base(DeclarativeBase):
     pass
+
+
+user_kanban_card_associacion = Table(
+    'user_kanban_card',
+    Base.metadata,
+    Column('user_id', Integer, ForeignKey('user.id')),
+    Column('kanban_card_id', Integer, ForeignKey('kanban_cards.id'))
+)
 
 
 class OAuthAccount(SQLAlchemyBaseOAuthAccountTable[int], Base):
@@ -24,7 +32,7 @@ class User(SQLAlchemyBaseUserTable[int], Base):
     oauth_accounts = relationship(
         "OAuthAccount", lazy="joined"
     )
-    # kanban_cards = relationship("KanbanCard", back_populates="user")
+    kanban_cards = relationship("KanbanCard", secondary=user_kanban_card_associacion, back_populates="users")
     # calendar_events = relationship("CalendarEvent", back_populates="user")
 
 
@@ -74,8 +82,7 @@ class KanbanCard(Base):
     column_id = Column(Integer, ForeignKey("kanban_columns.id"))
     column = relationship("KanbanColumn", back_populates="tasks")
 
-    user_id = Column(Integer, ForeignKey("user.id"))
-    user = relationship("User")
+    users = relationship("User", secondary=user_kanban_card_associacion, back_populates="kanban_cards")
 
     event = relationship("CalendarEvent", back_populates="kanban_card", uselist=False)
 

@@ -98,6 +98,7 @@ class KanbanCardResponse(BaseModel):
     task: Optional[str] = None
     datetime: Optional[dt.datetime] = None
     column_id: int
+    user_id: Optional[List[int]] = None
 
     class Config:
         from_attributes = True
