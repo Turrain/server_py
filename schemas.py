@@ -111,6 +111,7 @@ class KanbanCardResponse(BaseModel):
 class KanbanColumnCreate(BaseModel):
     title: str
     tag_color: Optional[str] = None
+    # tasks: Optional[List[KanbanCardCreate]] = None
 
     class Config:
         from_attributes = True

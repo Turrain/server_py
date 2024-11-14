@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 import datetime
 import random
 from typing import List
+from uuid import uuid4
 
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +20,7 @@ import shutil
 from pydub import AudioSegment
 from db import User, create_db_and_tables, get_async_session
 from models import CalendarEvent, KanbanCard, KanbanColumn, SoundFileModel, PhoneListModel, CompanyModel
-from schemas import CalendarEventCreate, KanbanCardCreate, KanbanColumnCreate, KanbanColumnResponse, UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate, PhoneList, PhoneListCreate, \
+from schemas import CalendarEventCreate, KanbanCardCreate, KanbanCardResponse, KanbanColumnCreate, KanbanColumnResponse, UserCreate, UserRead, UserUpdate, SoundFile, SoundFileCreate, PhoneList, PhoneListCreate, \
     CompanyCreate, Company, CallFile, CreateEventRequest
 from users import auth_backend, current_active_user, fastapi_users, google_oauth_client, openid_oauth_client, SECRET, get_all_users, create_user_pro, \
     create_phone_list_pro, create_sound_file_pro, create_company_pro
@@ -496,17 +497,17 @@ async def websocket_endpoint(
             elif action == "get_columns":
                 await get_kanban_columns(websocket, session)
             elif action == "update_column":
-                await update_kanban_column(websocket, data["column_id"], data["column"], session)
+                await update_kanban_column(websocket, data["kanban_column_id"], data["column"], session)
             elif action == "delete_column":
-                await delete_kanban_column(websocket, data["column_id"], session)
+                await delete_kanban_column(websocket, data["kanban_column_id"], session)
             elif action == "create_card":
-                await create_kanban_card(websocket, data["card"], session)
+                await create_kanban_card(websocket, data["kanban_card"], session)
             elif action == "get_cards":
                 await get_kanban_cards(websocket, session, data.get("kanban_column_id"))
             elif action == "update_card":
-                await update_kanban_card(websocket, data["card_id"], data["card"], session)
+                await update_kanban_card(websocket, data["kanban_card_id"], data["kanban_card"], session)
             elif action == "delete_card":
-                await delete_kanban_card(websocket, data["card_id"], session)
+                await delete_kanban_card(websocket, data["kanban_card_id"], session)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
@@ -517,11 +518,15 @@ async def create_kanban_column(
     # user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session)
 ):
-    new_column = KanbanColumn(**column.dict())
+    new_column = KanbanColumn(**column)
     session.add(new_column)
     await session.commit()
-    await session.refresh(new_column)
-    await manager.broadcast({"action": "create_column", "column": new_column})
+
+    query = select(KanbanColumn).options(selectinload(KanbanColumn.tasks)).filter_by(id=new_column.id)
+    result = await session.execute(query)
+    loaded_column = result.scalars().first()
+
+    await manager.broadcast({"action": "create_column", "column": KanbanColumnResponse.model_validate(loaded_column).model_dump(mode='json')})
 
 
 async def get_kanban_columns(
@@ -588,22 +593,38 @@ async def create_kanban_card(
     # user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session),
 ):
-    new_kanban_card = KanbanCard(**kanban_card.dict())
+    card_datetime = None
+    if kanban_card["datetime"] and isinstance(kanban_card["datetime"], str):
+        # Remove 'Z' and handle UTC timezone
+        card_datetime = datetime.datetime.fromisoformat(kanban_card["datetime"].replace('Z', '+00:00'))
+    else:
+        card_datetime = kanban_card["datetime"]
+
+    new_kanban_card = KanbanCard(
+        id=str(uuid4()),
+        name=kanban_card["name"],
+        company=kanban_card["company"],
+        phone=kanban_card["phone"],
+        comment=kanban_card["comment"],
+        task=kanban_card["task"],
+        datetime=card_datetime,
+        column_id=kanban_card["column_id"]
+    )
     session.add(new_kanban_card)
     await session.commit()
     await session.refresh(new_kanban_card)
 
-    new_calendar_event = CalendarEvent(
-        title=f'Task: {kanban_card.task}',
-        start=kanban_card.datetime,
-        end=kanban_card.datetime + datetime.timedelta(hours=1),
-        # user_id=user.id,
-        kanban_card_id=new_kanban_card.id
-    )
-    session.add(new_calendar_event)
-    await session.commit()
+    # new_calendar_event = CalendarEvent(
+    #     title=f'Task: {kanban_card.task}',
+    #     start=kanban_card.datetime,
+    #     end=kanban_card.datetime + datetime.timedelta(hours=1),
+    #     # user_id=user.id,
+    #     kanban_card_id=new_kanban_card.id
+    # )
+    # session.add(new_calendar_event)
+    # await session.commit()
 
-    await manager.broadcast({"action": "create_card", "kanban_card": new_kanban_card})
+    await manager.broadcast({"action": "create_card", "kanban_card": KanbanCardResponse.model_validate(new_kanban_card).model_dump(mode='json')})
 
 
 async def get_kanban_cards(
