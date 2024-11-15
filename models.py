@@ -93,6 +93,7 @@ class KanbanColumn(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, index=True)
     tag_color = Column(String, nullable=True)
+    position = Column(Integer, nullable=True)
 
     user_id = Column(Integer, ForeignKey("user.id"))
     user = relationship("User")
