@@ -66,6 +66,7 @@ class Company(CompanyCreate):
 class CallFile(BaseModel):
     companyId: int
     filepath: str
+    reaction: Dict[str, str]
 
 
 class CreateEventRequest(BaseModel):

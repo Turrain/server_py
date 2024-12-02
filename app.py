@@ -33,6 +33,8 @@ from httpx_oauth.integrations.fastapi import OAuth2AuthorizeCallback
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 import requests
+from asyncio import gather, sleep
+import json
 
 async def add_test_data():
     test_users = [
@@ -87,6 +89,10 @@ GOOGLE_REDIRECT_URI = config('GOOGLE_REDIRECT_URI')
 
 REACT_REDIRECT_URI = config('REACT_REDIRECT_URI')
 
+ARI_BASE_URL = config('ARI_BASE_URL')
+ARI_USERNAME = config('ARI_USERNAME')
+ARI_PASSWORD = config('ARI_PASSWORD')
+
 app = FastAPI(lifespan=lifespan)
 origins = ["*"]
 app.add_middleware(
@@ -111,8 +117,31 @@ app.add_middleware(SessionMiddleware, secret_key="!secret")
 
 # region Callfile
 
-callfiles_directory = "files/call"
-os.makedirs(callfiles_directory, exist_ok=True)
+# callfiles_directory = "files/call"
+# os.makedirs(callfiles_directory, exist_ok=True)
+
+
+# Helper function to chunk the list
+def chunk_list(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+async def make_call(phone_number, sound_file, reaction):
+    """Make a single call request"""
+    phone_number_formated = str(phone_number).replace("(", "").replace(")", "").replace(" ", "").strip()
+    data = {
+        "variables": {
+            "SOUND_FILE": os.path.abspath(sound_file),
+            "REACTION": json.dumps(reaction)
+        }
+    }
+    return requests.post(
+        f'{ARI_BASE_URL}/channels?endpoint=PJSIP/{phone_number_formated}&extension=55555&context=Autocall&timeout=30&api_key={ARI_USERNAME}:{ARI_PASSWORD}',
+        json=data,
+        headers={"Content-Type": "application/json"}
+    )
+
 
 callfile_router = APIRouter()
 
@@ -121,56 +150,78 @@ async def create_callfile(
     callfile: CallFile,
     session: AsyncSession = Depends(get_async_session)
 ):
-    callfile_path = "/var/spool/asterisk/outgoing"
+#     callfile_path = "/var/spool/asterisk/outgoing"
 
-    query = select(CompanyModel).filter_by(id=callfile.companyId)
-    result = await session.execute(query)
-    company = result.scalars().first()
+    # query = select(CompanyModel).filter_by(id=callfile.companyId)
+    # result = await session.execute(query)
+    # company = result.scalars().first()
 
-    query = select(PhoneListModel).filter_by(id=company.phones_id)
-    result = await session.execute(query)
-    company_phones = result.scalars().first()
+    # query = select(PhoneListModel).filter_by(id=company.phones_id)
+    # result = await session.execute(query)
+    # company_phones = result.scalars().first()
+
+    company_phones = ["1234"]
 
     if not company_phones:
         raise HTTPException(status_code=404, detail="No phone numbers found for this company ID")
     
-    created_files = []
-
     try:
-        for phone_number in company_phones.phones:
-            filename = f"{callfiles_directory}/callfile-{phone_number}.call"
+        # Split phone numbers into batches of 5
+        phone_batches = list(chunk_list(company_phones, 5))
 
-            callfile_content = f"""
-Channel: PJSIP/{str(phone_number)}@provider-endpoint
-Context: Autocall
-Extension: 1000
-Priority: 1
-Callerid: "Звонобот" <1000>
-Set: SOUND_FILE={callfile.filepath}
-MaxRetries: 2
-RetryTime: 60
-WaitTime: 30
-"""
-
-            with open(filename, "w") as f:
-                f.write(callfile_content.strip())
-
-            os.chmod(filename, 0o666)
+        for batch in phone_batches:
+            # Process batch of 5 calls simultaneously
+            # print(callfile.reaction)
+            tasks = [make_call(phone, callfile.filepath, callfile.reaction) for phone in batch]
+            responses = await gather(*tasks)
+            # for res in responses:
+            #     print(res.text)
             
-            target_file_path = os.path.join(callfile_path, os.path.basename(filename))
-            if os.path.exists(target_file_path):
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"File '{os.path.basename(filename)}' already exists in the target directory"
-                )
+            # Wait 30 seconds before next batch
+            if batch != phone_batches[-1]:  # Don't wait after the last batch
+                await sleep(30)
+        
+        return {"message": "Calls initiated successfully"}
 
-            created_files.append(filename)
-            shutil.move(filename, callfile_path)
-    except:
-        for file in created_files:
-            os.remove(file);
-        return {"message": "Callfile error. Existed files has been removed."}
-    return {"message": "Callfile created successfully", "path": created_files}
+#     created_files = []
+
+    # try:
+    #     for phone_number in company_phones.phones:
+#             filename = f"{callfiles_directory}/callfile-{phone_number}.call"
+
+#             callfile_content = f"""
+# Channel: PJSIP/{str(phone_number).strip()}@provider-endpoint
+# Context: Autocall
+# Extension: 1000
+# Priority: 1
+# Callerid: "Звонобот" <1000>
+# Set: SOUND_FILE={callfile.filepath}
+# MaxRetries: 2
+# RetryTime: 60
+# WaitTime: 30
+# """
+
+#             with open(filename, "w") as f:
+#                 f.write(callfile_content.strip())
+
+#             os.chmod(filename, 0o666)
+            
+#             target_file_path = os.path.join(callfile_path, os.path.basename(filename))
+#             if os.path.exists(target_file_path):
+#                 raise HTTPException(
+#                     status_code=400, 
+#                     detail=f"File '{os.path.basename(filename)}' already exists in the target directory"
+#                 )
+
+#             created_files.append(filename)
+#             shutil.move(filename, callfile_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error initiating calls: {str(e)}")
+#         for file in created_files:
+#             os.remove(file);
+#             created_files.pop(file)
+#         return {"message": "Callfile error. Existed files has been removed."}
+#     return {"message": "Callfile created successfully", "path": created_files}
 
 # endregion
 
